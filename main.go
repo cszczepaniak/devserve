@@ -79,6 +79,7 @@ func runServer(cCtx *cli.Context) error {
 			websocketServer{
 				ctx:    ctx,
 				events: watcher.Events,
+				errors: watcher.Errors,
 			},
 		)
 	})
