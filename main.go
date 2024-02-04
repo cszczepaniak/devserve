@@ -106,6 +106,7 @@ func runServer(cCtx *cli.Context) error {
 type websocketServer struct {
 	ctx    context.Context
 	events <-chan fsnotify.Event
+	errors <-chan error
 }
 
 func (s websocketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -123,6 +124,13 @@ func (s websocketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-ctx.Done():
 			return
+		case err, ok := <-s.errors:
+			if !ok {
+				return
+			}
+			if err != nil {
+				log.Println("error:", err)
+			}
 		case event, ok := <-s.events:
 			if !ok {
 				return
