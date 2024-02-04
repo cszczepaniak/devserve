@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/cszczepaniak/go-devserve/filesystem"
+	"github.com/cszczepaniak/devserve/filesystem"
 	"github.com/fsnotify/fsnotify"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/sync/errgroup"
@@ -19,7 +19,7 @@ import (
 
 func main() {
 	app := &cli.App{
-		Name:  "go-devserve",
+		Name:  "devserve",
 		Usage: "A development file server with live-reloading.",
 		Args:  true,
 		Flags: []cli.Flag{
