@@ -2,40 +2,66 @@ package main
 
 import (
 	"context"
-	"flag"
+	"errors"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 
 	"github.com/cszczepaniak/go-devserve/filesystem"
 	"github.com/fsnotify/fsnotify"
+	"github.com/urfave/cli/v2"
 	"golang.org/x/sync/errgroup"
 	"nhooyr.io/websocket"
 	"nhooyr.io/websocket/wsjson"
 )
 
 func main() {
-	var applicationPort int
-	var websocketPort int
-	var dir string
+	app := &cli.App{
+		Name:  "go-devserve",
+		Usage: "A development file server with live-reloading.",
+		Args:  true,
+		Flags: []cli.Flag{
+			&cli.IntFlag{
+				Name:  "port",
+				Usage: "The port used to serve the given directory.",
+				Value: 3000,
+			},
+			&cli.IntFlag{
+				Name:  "ws-port",
+				Usage: "The port used to serve the websocket that notifies the browser when to live-reload the files in the given directory.",
+				Value: 8090,
+			},
+		},
+		Action: runServer,
+	}
 
-	flag.IntVar(&applicationPort, "app-port", 3000, "The port to serve the given directory.")
-	flag.IntVar(&websocketPort, "ws-port", 8090, "The port to serve the websocket used to live-reload the files in the given directory.")
-	flag.StringVar(&dir, "dir", ".", "The directory to serve. Defaults to the current directory.")
+	err := app.RunContext(context.Background(), os.Args)
+	if err != nil {
+		panic(err)
+	}
+}
 
-	flag.Parse()
+func runServer(cCtx *cli.Context) error {
+	dir := cCtx.Args().First()
+	if dir == "" {
+		return errors.New("must provide a directory")
+	}
 
-	eg, ctx := errgroup.WithContext(context.Background())
+	port := cCtx.Int("port")
+	wsPort := cCtx.Int("ws-port")
+
+	eg, ctx := errgroup.WithContext(cCtx.Context)
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	// TODO call Add if we notice a creation event for a subdirectory in this dir.
 	err = watcher.Add(dir)
 	if err != nil {
-		panic(err)
+		return err
 	}
 
 	wsServer := websocketServer{
@@ -44,11 +70,11 @@ func main() {
 	}
 
 	eg.Go(func() error {
-		return http.ListenAndServe(":"+strconv.Itoa(websocketPort), wsServer)
+		return http.ListenAndServe(":"+strconv.Itoa(wsPort), wsServer)
 	})
 
 	fileServer := http.FileServer(
-		filesystem.New(http.Dir(dir), websocketPort),
+		filesystem.New(http.Dir(dir), wsPort),
 	)
 	http.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fileServer.ServeHTTP(w, r)
@@ -56,13 +82,10 @@ func main() {
 	}))
 
 	eg.Go(func() error {
-		return http.ListenAndServe(":"+strconv.Itoa(applicationPort), nil)
+		return http.ListenAndServe(":"+strconv.Itoa(port), nil)
 	})
 
-	err = eg.Wait()
-	if err != nil {
-		panic(err)
-	}
+	return eg.Wait()
 }
 
 type websocketServer struct {
