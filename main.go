@@ -2,10 +2,10 @@ package main
 
 import (
 	"context"
-	"errors"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 
 	"github.com/cszczepaniak/go-devserve/filesystem"
@@ -45,7 +45,13 @@ func main() {
 func runServer(cCtx *cli.Context) error {
 	dir := cCtx.Args().First()
 	if dir == "" {
-		return errors.New("must provide a directory")
+		// Default to the current directory.
+		dir = "."
+	}
+
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return err
 	}
 
 	port := cCtx.Int("port")
@@ -59,31 +65,40 @@ func runServer(cCtx *cli.Context) error {
 	}
 
 	// TODO call Add if we notice a creation event for a subdirectory in this dir.
-	err = watcher.Add(dir)
+	err = watcher.Add(absDir)
 	if err != nil {
 		return err
 	}
+	defer watcher.Close()
+	log.Printf("listening for changes in directory %s\n", absDir)
 
-	wsServer := websocketServer{
-		ctx:    ctx,
-		events: watcher.Events,
-	}
-
+	// Serve the websocket server which tells the browser when to reload the page.
 	eg.Go(func() error {
-		return http.ListenAndServe(":"+strconv.Itoa(wsPort), wsServer)
+		return http.ListenAndServe(
+			":"+strconv.Itoa(wsPort),
+			websocketServer{
+				ctx:    ctx,
+				events: watcher.Events,
+			},
+		)
 	})
+	log.Printf("serving websocket on port %d\n", wsPort)
 
-	fileServer := http.FileServer(
-		filesystem.New(http.Dir(dir), wsPort),
-	)
-	http.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fileServer.ServeHTTP(w, r)
-		w.Header().Set("Clear-Site-Data", "cache")
-	}))
-
+	// Serve the files in the given directory.
 	eg.Go(func() error {
-		return http.ListenAndServe(":"+strconv.Itoa(port), nil)
+		fileServer := http.FileServer(
+			filesystem.New(http.Dir(dir), wsPort),
+		)
+
+		return http.ListenAndServe(
+			":"+strconv.Itoa(port),
+			http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				fileServer.ServeHTTP(w, r)
+				w.Header().Set("Clear-Site-Data", "cache")
+			}),
+		)
 	})
+	log.Printf("serving directory %s on port %d\n", absDir, port)
 
 	return eg.Wait()
 }
@@ -121,10 +136,11 @@ func (s websocketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s websocketServer) handleEvent(c *websocket.Conn, event fsnotify.Event) error {
+	log.Println("hey", event)
 	if !event.Op.Has(fsnotify.Write) {
 		return nil
 	}
 
-	log.Println("handling write event for", event.Name)
+	log.Println("file changed:", event.Name)
 	return wsjson.Write(context.Background(), c, "file change")
 }
