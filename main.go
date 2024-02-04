@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -77,9 +78,10 @@ func runServer(cCtx *cli.Context) error {
 		return http.ListenAndServe(
 			":"+strconv.Itoa(wsPort),
 			websocketServer{
-				ctx:    ctx,
-				events: watcher.Events,
-				errors: watcher.Errors,
+				ctx:             ctx,
+				events:          watcher.Events,
+				errors:          watcher.Errors,
+				applicationPort: port,
 			},
 		)
 	})
@@ -108,11 +110,13 @@ type websocketServer struct {
 	ctx    context.Context
 	events <-chan fsnotify.Event
 	errors <-chan error
+
+	applicationPort int
 }
 
 func (s websocketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		OriginPatterns: []string{"localhost:3000"},
+		OriginPatterns: []string{fmt.Sprintf("localhost:%d", s.applicationPort)},
 	})
 	if err != nil {
 		log.Fatal(err)
