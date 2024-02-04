@@ -123,6 +123,8 @@ func (s websocketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer c.CloseNow()
 
+	log.Println("websocket connected")
+
 	ctx := c.CloseRead(s.ctx)
 
 	for {
