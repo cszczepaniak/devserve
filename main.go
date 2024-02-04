@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -10,11 +9,10 @@ import (
 	"strconv"
 
 	"github.com/cszczepaniak/devserve/filesystem"
+	"github.com/cszczepaniak/devserve/websockets"
 	"github.com/fsnotify/fsnotify"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/sync/errgroup"
-	"nhooyr.io/websocket"
-	"nhooyr.io/websocket/wsjson"
 )
 
 func main() {
@@ -75,14 +73,16 @@ func runServer(cCtx *cli.Context) error {
 
 	// Serve the websocket server which tells the browser when to reload the page.
 	eg.Go(func() error {
+		wsServer := websockets.NewServer(
+			watcher.Events,
+			watcher.Errors,
+			port,
+		)
 		return http.ListenAndServe(
 			":"+strconv.Itoa(wsPort),
-			websocketServer{
-				ctx:             ctx,
-				events:          watcher.Events,
-				errors:          watcher.Errors,
-				applicationPort: port,
-			},
+			http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				wsServer.ServeHTTP(w, r.WithContext(ctx))
+			}),
 		)
 	})
 	log.Printf("serving websocket on port %d\n", wsPort)
@@ -104,57 +104,4 @@ func runServer(cCtx *cli.Context) error {
 	log.Printf("serving directory %s on port %d\n", absDir, port)
 
 	return eg.Wait()
-}
-
-type websocketServer struct {
-	ctx    context.Context
-	events <-chan fsnotify.Event
-	errors <-chan error
-
-	applicationPort int
-}
-
-func (s websocketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		OriginPatterns: []string{fmt.Sprintf("localhost:%d", s.applicationPort)},
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer c.CloseNow()
-
-	log.Println("websocket connected")
-
-	ctx := c.CloseRead(s.ctx)
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case err, ok := <-s.errors:
-			if !ok {
-				return
-			}
-			if err != nil {
-				log.Println("error:", err)
-			}
-		case event, ok := <-s.events:
-			if !ok {
-				return
-			}
-			err := s.handleEvent(c, event)
-			if err != nil {
-				log.Println("error:", err)
-			}
-		}
-	}
-}
-
-func (s websocketServer) handleEvent(c *websocket.Conn, event fsnotify.Event) error {
-	if !event.Op.Has(fsnotify.Write) {
-		return nil
-	}
-
-	log.Println("file changed:", event.Name)
-	return wsjson.Write(context.Background(), c, "file change")
 }

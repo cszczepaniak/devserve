@@ -1,4 +1,4 @@
-module github.com/cszczepaniak/go-devserve
+module github.com/cszczepaniak/devserve
 
 go 1.21.0
 
