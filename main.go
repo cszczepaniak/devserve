@@ -145,7 +145,6 @@ func (s websocketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s websocketServer) handleEvent(c *websocket.Conn, event fsnotify.Event) error {
-	log.Println("hey", event)
 	if !event.Op.Has(fsnotify.Write) {
 		return nil
 	}
