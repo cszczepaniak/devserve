@@ -69,6 +69,7 @@ func (s *websocketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		// Once the client is closed, we should remove its connection so we no longer try to notify
 		// it.
+		log.Println("removing websocket connection...")
 		s.removeConnection(c)
 	}()
 }
