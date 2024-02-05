@@ -26,6 +26,13 @@ type websocketServer struct {
 	connections map[*websocket.Conn]<-chan struct{}
 }
 
+func (s *websocketServer) doLocked(fn func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	fn()
+}
+
 func NewServer(
 	events <-chan fsnotify.Event,
 	errors <-chan error,
@@ -50,7 +57,6 @@ func (s *websocketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Println("websocket connected")
 
 	// We won't be reading from this channel. The ctx gets closed when the client closes the
 	// connection.
@@ -61,7 +67,10 @@ func (s *websocketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// If the connection has already been closed, skip adding it entirely.
 		return
 	default:
-		s.addConnection(ctx, c)
+		s.doLocked(func() {
+			s.connections[c] = ctx.Done()
+			log.Printf("websocket connected (now connected to %d clients)\n", len(s.connections))
+		})
 	}
 
 	go func() {
@@ -69,8 +78,10 @@ func (s *websocketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		// Once the client is closed, we should remove its connection so we no longer try to notify
 		// it.
-		log.Println("removing websocket connection...")
-		s.removeConnection(c)
+		s.doLocked(func() {
+			delete(s.connections, c)
+			log.Printf("websocket disconnected (now connected to %d clients)\n", len(s.connections))
+		})
 	}()
 }
 
@@ -127,18 +138,4 @@ func (s *websocketServer) notifyConnections(event fsnotify.Event) error {
 	}
 
 	return errors.Join(errs...)
-}
-
-func (s *websocketServer) addConnection(ctx context.Context, c *websocket.Conn) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.connections[c] = ctx.Done()
-}
-
-func (s *websocketServer) removeConnection(c *websocket.Conn) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	delete(s.connections, c)
 }
