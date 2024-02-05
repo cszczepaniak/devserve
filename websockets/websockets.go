@@ -16,6 +16,8 @@ type websocketServer struct {
 	errors <-chan error
 
 	applicationPort int
+
+	notifier *notifier
 }
 
 func NewServer(
@@ -27,7 +29,12 @@ func NewServer(
 		events:          events,
 		errors:          errors,
 		applicationPort: applicationPort,
+		notifier:        newNotifier(),
 	}
+}
+
+func (s websocketServer) Start(ctx context.Context) {
+	go s.listenToEvents(ctx)
 }
 
 func (s websocketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -43,9 +50,19 @@ func (s websocketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	ctx := c.CloseRead(r.Context())
 
+	s.notifier.add(func(e fsnotify.Event) error {
+		return s.handleEvent(c, e)
+	})
+
+	<-ctx.Done()
+}
+
+func (s websocketServer) listenToEvents(ctx context.Context) {
+	log.Println("websocket server listening for file change events...")
 	for {
 		select {
 		case <-ctx.Done():
+			log.Println("websocket event listener exiting...")
 			return
 		case err, ok := <-s.errors:
 			if !ok {
@@ -58,7 +75,7 @@ func (s websocketServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			err := s.handleEvent(c, event)
+			err := s.notifier.notify(event)
 			if err != nil {
 				log.Println("error:", err)
 			}

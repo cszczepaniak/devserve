@@ -78,6 +78,8 @@ func runServer(cCtx *cli.Context) error {
 			watcher.Errors,
 			port,
 		)
+		wsServer.Start(ctx)
+
 		return http.ListenAndServe(
 			":"+strconv.Itoa(wsPort),
 			http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
